@@ -292,3 +292,53 @@ model = model.to(device)
 if compile_flag:
     model = torch.compile(model)
 raw_model = model.module if ddp else model  # always contains the "raw" unwrapped model
+
+max_lr = 6e-4
+min_lr = max_lr * 0.1
+warmup_steps = 10
+max_steps = 50
+def get_lr(it):
+    # learning rate schedule
+    if it < warmup_steps:
+        return max_lr * (it + 1) / warmup_steps
+    elif it > max_steps:
+        return min_lr
+    
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff starts at 1 and goes to 0
+    return min_lr + coeff * (max_lr - min_lr)
+
+optimizer = raw_model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device=device)
+
+for step in range(max_steps):
+    t0 = time.time()
+    optimizer.zero_grad()
+    loss_accum = 0.0
+    for micro_step in range(grad_accum_steps):
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device)
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):  # optimized version
+            logits, loss = model(x, y)
+        loss = loss / grad_accum_steps
+        loss_accum += loss.detach()
+        if ddp:
+            model.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)  # optimized version, sync only once
+        loss.backward()
+    if ddp:
+        dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)  # optimized version, average the loss across all processes
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # optimized version
+    # determine and set the learning rate for this iteration
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    optimizer.step()
+    torch.cuda.synchronize() if device == 'cuda' else None  # wait for the GPU to finish work
+    t1 = time.time()
+    dt = t1-t0
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
+    tokens_per_second = tokens_processed / dt
+    if master_process:
+        print(f"step {step} | loss {loss_accum.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f} | tokens/s: {tokens_per_second:.2f}")
+
+import sys; sys.exit(0)
