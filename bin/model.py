@@ -101,12 +101,58 @@ class GPTConfig:
     n_layer: int = 12  # number of transformer layers
     n_head: int = 12  # number of attention heads
     n_embd: int = 768  # embedding dimension
-    
+
 
 class GPT(nn.Module):
     def __init__ (self, config):
         super().__init__()
         self.config = config
+
+        self.transformer = nn.ModuleDict(dict(
+            wte = nn.Embedding(config.vocab_size, config.n_embd),
+            wpe = nn.Embedding(config.block_size, config.n_embd),
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            ln_f = nn.LayerNorm(config.n_embd)
+        ))
+        
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        # weight sharing scheme
+        self.transformer.wte.weight = self.lm_head.weight  # optimized version
+
+        # init params
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):  # optimized version
+                std *= (2 * self.config.n_layer) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def forward(self, idx, targets=None):
+        # idx is of shape (B, T)
+        B, T = idx.size()
+        assert T <= self.config.block_size, f"Cannot forward {T}, model block size {self.config.block_size} is exhausted."
+        # forward the token and the position embeddings
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape(T)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (T, n_embd)
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (B, T, n_embd)
+        x = tok_emb + pos_emb
+        # forward the blocks of the transformer
+        for block in self.transformer.h:
+            x = block(x)
+        # forward the final layernorm and the classifier
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x) # shape (B, T, vocab_size)
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))  # flatten all the logits
+        return logits, loss
 
     @classmethod
     def from_pretrained(cls, model_type):
@@ -155,3 +201,37 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
+    
+
+class DataLoaderLite:
+    def __init__(self, B, T, process_rank, num_processes, split):
+        self.B = B
+        self.T = T
+        self.process_rank = process_rank
+        self.num_processes = num_processes
+        assert split in {'train', 'valid'}
+
+        with open("../data/input.txt", "r") as f:
+            text = f.read()
+
+        print(text[:50])
+        enc = tiktoken.get_encoding('gpt2')
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens)
+        print(f"loaded {len(tokens)} tokens")
+        print(f"1 epoch = {len(tokens) // (B * T)} iterations")
+        
+        # state
+        self.current_position = self.B * self.T * self.process_rank
+        
+    def next_batch(self):
+        B, T = self.B, self.T
+        buf = self.tokens[self.current_position: self.current_position + B*T + 1]
+        x = (buf[:-1]).view(B, T)
+        y = (buf[1:]).view(B, T)
+        # advance the position in the tensor
+        self.current_position += B * T * self.num_processes
+        # if loading the next batch would be out of bounds, reset
+        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
+            self.current_position = self.B * self.T * self.process_rank
+        return x, y
