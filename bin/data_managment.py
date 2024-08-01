@@ -86,3 +86,33 @@ class DataManager:
                 writer.writerow(data)
 
         return reader
+    
+    def read_parquet(self, csv_file, char):
+        path = self.parquet_dir + f"{char}.parquet"  # from a to z
+        try:
+            parquet_data = pd.read_parquet(path, engine="pyarrow")
+        except Exception as e:
+            print(e)
+
+        else:
+            # ic(parquet_data.columns)
+            title = parquet_data["title"]
+            # ic(title[0])
+            texts = parquet_data["text"]
+            # ic(texts[0])
+
+            if csv_file is True:
+                with open("./../data/wiki.csv", 'w', newline='', encoding="utf-8") as file:
+                    writer = csv.writer(file)
+                    
+                    # Scrivi l'intestazione
+                    writer.writerow(["Title", "Message"])
+                    
+                    # Scrivi i dati
+                    for i in range(len(title)):
+                        writer.writerow([title[i], f'{title[i]}: {texts[i]}'])
+            else:
+                data = []
+                for text in texts:
+                    data.append(text)
+                return '\n'.join(data)
