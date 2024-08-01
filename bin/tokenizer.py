@@ -83,6 +83,8 @@ class BaseTokenizer:
 
 
 GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+
 
 class BytePairTokenizer(BaseTokenizer):
     def __init__(self) -> None:
@@ -118,3 +120,124 @@ class BytePairTokenizer(BaseTokenizer):
 
         self.merges = merges
         self.vocab = vocab
+
+    def register_special_tokens(self, special_tokens: dict):
+        self.special_tokens = special_tokens
+        self.inverse_special_tokens = {v: k for k, v in special_tokens.items()}
+
+    def decode(self, ids: list):
+        part_bytes = []
+
+        for idx in ids:
+            if idx in self.vocab:
+                part_bytes.append(self.vocab[idx])
+            elif idx in self.inverse_special_tokens:
+                part_bytes.append(self.inverse_special_tokens[idx].encode("utf-8"))
+            else:
+                raise ValueError(f"Invalid token {idx}")
+
+        tokens = b"".join(part_bytes)
+        text = tokens.decode("utf-8", errors="replace")
+        return text
+
+    def _encode_chunk(self, text_bytes: bytes):
+        ids = list(text_bytes)
+
+        while len(ids) >= 2:
+            stats = get_stats(ids)
+            pair = min(stats, key=lambda p: self.merges.get(p, float("inf")))
+            if pair not in self.merges:
+                break
+            idx = self.merges[pair]
+            ids = merge(ids, pair, idx)
+        return ids
+
+    def encode_ordinary(self, text: str):
+        text_chunks = re.findall(self.compiled_pattern, text)
+
+        ids = []
+        for chunk in text_chunks:
+            chunk_bytes = chunk.encode("utf-8")
+            chunk_ids = self._encode_chunk(chunk_bytes)
+            ids.extend(chunk_ids)
+
+        return ids
+
+    def encode(self, text: str, allowed_special="none_raise"):
+        special = None
+        if allowed_special == "all":
+            special = self.special_tokens
+        elif allowed_special == "none":
+            special = {}
+        elif allowed_special == "none_raise":
+            special = {}
+            assert all(token not in text for token in self.special_tokens)
+        elif isinstance(allowed_special, set):
+            special = {k: v for k, v in self.special_tokens.items() if k in allowed_special}
+        else:
+            raise ValueError(f"Invalid value for allowed_special: {allowed_special}")
+
+        if not special:
+            return self.encode_ordinary(text)
+
+        special_pattern = "(" + "|".join(re.escape(k) for k in special) + ")"
+        special_chunks = re.split(special_pattern, text)
+
+        ids = []
+
+        for part in special_chunks:
+            if part in special:
+                ids.append(special[part])
+            else:
+                ids.extend(self.encode_ordinary(part))
+
+        return ids
+
+    def save_merges(self):
+        with open("../data/merges.json", "w") as file:
+            db ={}
+            mer = {str(k): v for k, v in self.merges.items()}
+            vocab = {str(k): v.decode("utf-8", errors="replace") for k, v in self.vocab.items()}
+            db["merges"] = mer
+            db["vocab"] = vocab
+            json.dump(db, file, indent=4)
+
+    def load_merges(self):
+        with open("../data/merges.json", "r") as file:
+            db = json.load(file)
+            merges = {eval(k): v for k, v in db["merges"].items()}
+            vocab = {eval(k): v.encode("utf-8") for k, v in db["vocab"].items()}
+            self.merges = merges
+            self.vocab = vocab
+
+    def view_tokenized_text(self, ids: list):
+        for idx in ids:
+            print(f"{self.vocab[idx].decode('utf-8', errors='replace')}: {self.vocab[idx]}")
+
+
+def get_data(file_path="../data/input.txt"):
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    return text
+ 
+
+def main():
+    tokenizer = BytePairTokenizer()
+    # text = get_data()
+
+    text = get_data()
+    tokenizer.train(text, 406)
+    tokenizer.save_merges()
+
+    print("Merges: ", tokenizer.merges)
+    print("Vocab: ", tokenizer.vocab)
+
+    special_tokens = {
+        '<|endoftext|>': 100257,
+        '<|fim_prefix|>' : 100258,
+        '<|fim_middle|>' : 100259,
+        '<|fim_suffix|>' : 100260,
+        '<|endofprompt|>' : 100276
+    }  # gpt2 special tokens
+
+    tokenizer.register_special_tokens(special_tokens)
