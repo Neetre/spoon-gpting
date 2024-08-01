@@ -41,3 +41,41 @@ def write_datafile(filename, tokens_np):
     # writes a numpy aray of uint16 tokens to a binary file
     with open(filename, "wb") as f:
         f.write(tokens_np.tobytes())
+        
+# tokenize all documents and write output shards, each of shard_size tokens (last shard may be smaller)
+nprocs = max(1, mp.cpu_count()//2)
+with mp.Pool(nprocs) as pool:
+    shard_index = 0
+    # preallocate buffer to hold current shard
+    all_tokens_np = np.empty((shard_size,), dtype=np.uint16)
+    token_count = 0
+    progress_bar = None
+    for tokens in pool.imap(tokenize, fw, chunksize=16):
+        # is there enough space in the current shard for the new tokens?
+        if token_count + len(tokens) < shard_size:
+            all_tokens_np[token_count:token_count+len(tokens)] = tokens
+            token_count += len(tokens)
+            # update progress bar
+            if progress_bar is None:
+                progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
+            progress_bar.update(len(tokens))
+        else:
+            # write the current shard and start a new one
+            split = "val" if shard_index == 0 else "train"  # 3:16:40
+            filename = os.path.join(DATA_CACHE_DIR, f"edu_fineweb_{split}_{shard_index:06d}")
+            # split the document into whatever fits in this shard
+            remainder = shard_size - token_count
+            progress_bar.update(remainder)
+            all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
+            write_datafile(filename, all_tokens_np)
+            shard_index += 1
+            progress_bar = None
+            # populate the next shard with the leftovers of the current document
+            all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
+            token_count = len(tokens) - remainder
+
+    # write any remaining tokens as the last shard
+    if token_count != 0:
+        split = "val" if shard_index == 0 else "train"
+        filename = os.path.join(DATA_CACHE_DIR, f"edu_fineweb_{split}_{shard_index:06d}")
+        write_datafile(filename, all_tokens_np[:token_count])
