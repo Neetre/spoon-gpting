@@ -1,5 +1,4 @@
 '''
-
 https://github.com/openai/tiktoken
 https://en.wikipedia.org/wiki/Byte_pair_encoding
 
@@ -7,10 +6,24 @@ Neetre 2024
 '''
 
 import argparse
+
 import regex as re
 import json
+
 import datasets
 
+
+def args_parsing():
+    argparser = argparse.ArgumentParser("Byte Pair Encoding Tokenizer")
+    argparser.add_argument("--train", action="store_true", help="Train the tokenizer")
+    argparser.add_argument("--special", action="store_true", help="Register special tokens")
+    argparser.add_argument("--text-path-train", type=str, help="Path to the text file for train")
+    argparser.add_argument("--text-path-test", type=str, help="Path to the text file for test")
+    argparser.add_argument("--load-mod", action="store_true", help="Load the tokenizer")
+    argparser.add_argument("--save-mod", action="store_true", help="Save the tokenizer")
+    argparser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
+
+    return argparser.parse_args()
 
 def get_stats(ids: list, counts=None):
     """
@@ -83,8 +96,6 @@ class BaseTokenizer:
 
 
 GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
-
 
 class BytePairTokenizer(BaseTokenizer):
     def __init__(self) -> None:
@@ -219,18 +230,48 @@ def get_data(file_path="../data/input.txt"):
     with open(file_path, "r", encoding="utf-8") as f:
         text = f.read()
     return text
- 
+
+
+def get_corpus(len_limit):
+    bookcorpus_train = datasets.load_dataset("bookcorpus", split="train")
+    #  bookcorpus_val = datasets.load_dataset("bookcorpus")
+
+    # divide the dataset in B parts
+    # bookcorpus_train = bookcorpus_train.shard(num_shards=B, index=0)  # 1/B of the dataset
+    text = bookcorpus_train["text"][:len_limit]
+    print(text[:10])
+    return ' '.join(text)
+
+
+def get_wiki(len_limit):
+    wiki = datasets.load_dataset("wikipedia", "20201201.en")
+    text = wiki["text"][:len_limit]
+    print(text[:10])
+    return ' '.join(text)
+
 
 def main():
+    args = args_parsing()
+
     tokenizer = BytePairTokenizer()
     # text = get_data()
 
-    text = get_data()
-    tokenizer.train(text, 406)
-    tokenizer.save_merges()
+    if args.train:
+        text = get_data(args.text_path_train)
+        tokenizer.train(text, 406)
+        if args.save_mod:
+            tokenizer.save_merges()
 
-    print("Merges: ", tokenizer.merges)
-    print("Vocab: ", tokenizer.vocab)
+    if args.load_mod:
+        tokenizer.load_merges()
+
+    if args.verbose:
+        print("Merges: ", tokenizer.merges)
+        print("Vocab: ", tokenizer.vocab)
+
+    if args.text_path_test:
+        with open(args.text_path_test, "r", encoding="utf-8") as f:
+            text = f.read()
 
     special_tokens = {
         '<|endoftext|>': 100257,
@@ -241,3 +282,44 @@ def main():
     }  # gpt2 special tokens
 
     tokenizer.register_special_tokens(special_tokens)
+
+    while True:
+        text = input("Enter text: ")
+        ids = tokenizer.encode(text)
+        print("---")
+        print("Text Lenght: ", len(text))
+        print("Tokens length: ", len(ids))
+        print("Tokens: ", ids)
+        # print("Original text == Decoded text? ", text_de == text)
+        print(f"Compression ratio: {len(text) / len(ids):.2f}X\n")
+
+        # tokenizer.view_tokenized_text(ids)
+
+        q = input("\n\nDo you want to continue? (y/n): ")
+        if q == "n":
+            break
+
+    '''
+    text = get_corpus(len_limit)
+    tokenizer = BytePairTokenizer()
+    # tokenizer.load_merges()
+    # print("Loaded merges: ", len(tokenizer.merges))
+    # print("Loaded vocab: ", len(tokenizer.vocab))
+    vocab_size = 406
+    tokenizer.train(text, vocab_size)
+    ids = tokenizer.encode(text)
+    text_de = tokenizer.decode(ids)
+
+    print("---")
+    print("Text Lenght: ", len(text))
+    print("Tokens length: ", len(ids))
+    print("Original text == Decoded text? ", text_de == text)
+    print("Vocab size: ", len(tokenizer.vocab))
+    print(f"Compression ratio: {len(text) / len(ids):.2f}X\n")
+
+    tokenizer.save_merges()
+    '''
+
+
+if __name__ == "__main__":
+    main()
