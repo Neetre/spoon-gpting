@@ -3,6 +3,7 @@ import os.path
 import csv
 import pandas as pd
 import yaml
+import tqdm
 
 
 ic.enable()
@@ -87,32 +88,28 @@ class DataManager:
 
         return reader
     
-    def read_parquet(self, csv_file, char):
-        path = self.parquet_dir + f"{char}.parquet"  # from a to z
+    def read_parquet(self, filename: str, n_lines: int):
         try:
-            parquet_data = pd.read_parquet(path, engine="pyarrow")
+            parquet_data = pd.read_parquet(filename, engine="pyarrow")
         except Exception as e:
-            print(e)
+            print(f"An error occoured while reading the parquet file {filename}: {e}")
 
-        else:
-            # ic(parquet_data.columns)
-            title = parquet_data["title"]
-            # ic(title[0])
-            texts = parquet_data["text"]
-            # ic(texts[0])
-
-            if csv_file is True:
-                with open("./../data/wiki.csv", 'w', newline='', encoding="utf-8") as file:
-                    writer = csv.writer(file)
-                    
-                    # Scrivi l'intestazione
-                    writer.writerow(["Title", "Message"])
-                    
-                    # Scrivi i dati
-                    for i in range(len(title)):
-                        writer.writerow([title[i], f'{title[i]}: {texts[i]}'])
+        title = parquet_data["title"]
+        texts = parquet_data["text"]
+        documents = []
+        print(f"Tot rows: {n_lines}")
+        c = 0
+        for text in tqdm(texts):
+            if n_lines != 0:
+                if c == n_lines:
+                    print(c)
+                    documents.append(text)
+                    return documents
+                documents.append(text)
             else:
-                data = []
-                for text in texts:
-                    data.append(text)
-                return '\n'.join(data)
+                documents.append(text)
+            
+            if c % 10000:
+                print(f"Row {c} done")
+        
+        return documents

@@ -1,24 +1,31 @@
 import pandas as pd
 from tqdm import tqdm
 
-def read_parquet_ya(file_paths: list, len_limit = 10000):
-    for path in tqdm(file_paths, desc="Reading parquet files"):
-        try:
-            parquet_data = pd.read_parquet(path, engine="pyarrow")
-        except Exception as e:
-            print(e)
+def read_parquet_ya(filename: str, n_lines: int):
+    try:
+        parquet_data = pd.read_parquet(filename, engine="pyarrow")
+    except Exception as e:
+        print(f"An error occoured while reading the parquet file {filename}: {e}")
 
-        titles = parquet_data["title"]
-        texts = parquet_data["text"]
-        data = []
-        c = 0
-        for title, text in zip(titles, texts):
-            if c == len_limit:
-                return '\n'.join(data)
-            else:
-                data.append(title)
-                data.append(text)
-                c += 1
+    title = parquet_data["title"]
+    texts = parquet_data["text"]
+    documents = []
+    print(f"Tot rows: {n_lines}")
+    c = 0
+    for text in tqdm(texts):
+        if n_lines != 0:
+            if c == n_lines:
+                print(c)
+                documents.append(text)
+                return documents
+            documents.append(text)
+        else:
+            documents.append(text)
+        
+        if c % 10000:
+            print(f"Row {c} done")
+    
+    return documents
 
 
 file_paths = ["a.parquet", "b.parquet", "c.parquet", "d.parquet"]
