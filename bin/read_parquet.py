@@ -1,7 +1,18 @@
 import pandas as pd
 from tqdm import tqdm
 
-def read_parquet_ya(filename: str, n_lines: int):
+
+def read_parquet_ya(filename: str, n_lines: int) -> list:
+    """
+    Read parquet file and return the text column
+
+    Args:
+        filename (str): name of the parquet file
+        n_lines (int): number of lines to read
+
+    Returns:
+        list: list of documents
+    """
     try:
         parquet_data = pd.read_parquet(filename, engine="pyarrow")
     except Exception as e:

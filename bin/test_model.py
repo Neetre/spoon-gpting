@@ -114,7 +114,7 @@ class HellaSwagDataset:
                 yield example
 
     @torch.no_grad()
-    def evaluate(self, model_type, device):
+    def evaluate(self, model_type, device, compile_flag=False):
         """
         This function evaluates a model on the HellaSwag dataset.
 
@@ -126,7 +126,9 @@ class HellaSwagDataset:
         torch.set_float32_matmul_precision('high') # use tf32
         model = GPT2LMHeadModel.from_pretrained(model_type)
         model.to(device)
-        # model = torch.compile(model) # optionally torch compile the model
+
+        if compile_flag:
+            model = torch.compile(model) # optionally torch compile the model
 
         num_correct_norm = 0
         num_correct = 0
@@ -169,6 +171,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model_type", type=str, default="gpt2", help="the model type to use")
     parser.add_argument("-d", "--device", type=str, default="cuda", help="the device to use")
+    parser.add_argument("-s", "--split", type=str, default="val", help="the split of the dataset to use") # "val" or "train" or "test"
+    parser.add_argument("-c", "--compile", action="store_true", help="whether to torch compile the model")
     args = parser.parse_args()
-    hella = HellaSwagDataset("val")  # or "train" or "test"
-    hella.evaluate(args.model_type, args.device)
+    hella = HellaSwagDataset(args.split)  # "val" or "train" or "test"
+    hella.evaluate(args.model_type, args.device, args.compile)

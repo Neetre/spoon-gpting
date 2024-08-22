@@ -162,8 +162,23 @@ class DistributedGPTTrainer:
             destroy_process_group()
 
 
+def get_tokens():
+    enc = tiktoken.get_encoding('gpt2')
+    text = open('../data/input.txt').read()
+    tokens = enc.encode(text)
+    tokens = torch.tensor(tokens).unsqueeze(0)
+    return tokens
+
+
 # Example usage:
-# trainer = DistributedGPTTrainer(compile_flag=False)
-# trainer.train()
-# trainer.generate(tokens)
-# trainer.cleanup()
+def main():
+    tokens = get_tokens()
+
+    trainer = DistributedGPTTrainer(compile_flag=False)
+    trainer.train()
+    trainer.generate(tokens)  # tokens is a torch.Tensor of shape (B, T) containing the input text to generate from
+    trainer.cleanup()
+
+
+if __name__ == "__main__":
+    main()
