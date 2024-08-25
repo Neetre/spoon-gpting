@@ -5,7 +5,6 @@ import pandas as pd
 import yaml
 import tqdm
 
-
 ic.enable()
 
 nome_f = os.path.basename(__file__)
@@ -34,7 +33,6 @@ class DataManager:
             if char is None:
                 char = "a"
             return self.read_parquet(csv_file, char)
-
 
     def read_yaml(self, csv_file=False, database=False):
         items = []

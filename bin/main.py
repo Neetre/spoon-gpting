@@ -133,8 +133,8 @@ class DistributedGPTTrainer:
 
         Args:
             tokens (torch.Tensor): the text
-            num_return_sequences (int, optional): _description_. Defaults to 5.
-            max_length (int, optional): _description_. Defaults to 30.
+            num_return_sequences (int, optional): num of sequences the model has to generate. Defaults to 5.
+            max_length (int, optional): the lenght of the sequence. Defaults to 30.
         """
         enc = tiktoken.get_encoding('gpt2')
         self.model.eval()
