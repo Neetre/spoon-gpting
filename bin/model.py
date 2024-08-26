@@ -206,12 +206,12 @@ def load_tokens(filename):
 
 
 class DataLoaderLite:
-    def __init__(self, B, T, process_rank, num_processes, split):
+    def __init__(self, B, T, process_rank, num_processes, split="train"):
         self.B = B
         self.T = T
         self.process_rank = process_rank
         self.num_processes = num_processes
-        assert split in {'train', 'valid'}
+        # assert split in {'train', 'valid'}
 
         # with open("../data/input.txt", "r") as f:
         #    text = f.read()

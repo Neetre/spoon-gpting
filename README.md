@@ -28,6 +28,10 @@ Structure:
 │   ├── read_parquet.py
 ```
 
+## Note
+
+The input data for the training must be a parquet file: title,text. The data must be in the `data` folder.
+
 ## Improvements
 
 - [X] Add a way to evaluate the model with a test set
@@ -57,8 +61,10 @@ Run the following command to start the application:
 
 ```bash
 cd bin
-python ./main.py
+python ./main.py [--help]
 ```
+
+![help](./data/readme/help.png)
 
 ## License
 

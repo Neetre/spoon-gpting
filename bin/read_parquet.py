@@ -38,6 +38,5 @@ def read_parquet_ya(filename: str, n_lines: int) -> list:
     
     return documents
 
-
-file_paths = ["a.parquet", "b.parquet", "c.parquet", "d.parquet"]
-read_parquet_ya()
+# file_paths = ["a.parquet", "b.parquet", "c.parquet", "d.parquet"]
+# read_parquet_ya()

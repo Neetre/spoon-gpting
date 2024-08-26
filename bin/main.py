@@ -1,6 +1,7 @@
 import os
 import math
 import time
+import argparse
 import torch
 import torch.nn.functional as F
 from torch.distributed import init_process_group, destroy_process_group
@@ -8,6 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from model import DataLoaderLite, GPT, GPTConfig
 import tiktoken
+from icecream import ic
 
 
 class DistributedGPTTrainer:
@@ -19,7 +21,7 @@ class DistributedGPTTrainer:
         self.B = 4
         self.T = 1024
         self.grad_accum_steps = self._calculate_grad_accum_steps()
-        self.train_loader = DataLoaderLite(B=self.B, T=self.T, process_rank=self.ddp_rank, num_processes=self.ddp_world_size)
+        self.train_loader = DataLoaderLite(B=self.B, T=self.T, process_rank=self.ddp_rank, num_processes=self.ddp_world_size, "") # insert the name of the parquet file
         self.model = self._setup_model()
         self.optimizer = self._setup_optimizer()
         self.max_lr = 6e-4
@@ -170,13 +172,32 @@ def get_tokens():
     return tokens
 
 
+def args_parsing():
+    parser = argparse.ArgumentParser(description='PyTorch GPT2 Example')
+    parser.add_argument("--train", action="store_true", default=False, help="Train the model")
+    parser.add_argument("-c", "--compile", action='store_true', default=False, help="Add this to compile the model")
+    parser.add_argument("-g", "--generate", action="store_true", default=False, help="Generate text")
+    parser.add_argument('--num-sequences', type=int, default=5, help="Num of sequences to generate")
+    parser.add_argument('--sequences-length', type=int, default=30, help="The length of the generated sequences")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Make the program more verbose")
+
+    return parser.parse_args()
+
 # Example usage:
 def main():
-    tokens = get_tokens()
+    args = args_parsing()
+    if args.verbose:
+        ic.enable()
+    else:
+        ic.disable()
 
-    trainer = DistributedGPTTrainer(compile_flag=False)
-    trainer.train()
-    trainer.generate(tokens)  # tokens is a torch.Tensor of shape (B, T) containing the input text to generate from
+    trainer = DistributedGPTTrainer(compile_flag=args.compile)
+    if args.train:
+        trainer.train()
+
+    if args.generate:
+        tokens = get_tokens()
+        trainer.generate(tokens)  # tokens is a torch.Tensor of shape (B, T) containing the input text to generate from
     trainer.cleanup()
 
 
